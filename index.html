@@ -26,6 +26,60 @@
             stroke-linecap: round;
             stroke-linejoin: round;
         }
+        /* Modal Overlay styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .modal-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            max-width: 90%;
+            max-height: 90%;
+            overflow-y: auto;
+            transform: translateY(20px);
+            opacity: 0;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+        .modal-overlay.show .modal-content {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        /* Copy message styles */
+        .copy-message {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #4CAF50; /* Green */
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            z-index: 1001;
+        }
+        .copy-message.show {
+            opacity: 1;
+        }
     </style>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex flex-col items-center py-12 px-4 antialiased">
@@ -53,7 +107,7 @@
                 type="text"
                 id="patternInput"
                 class="w-full p-4 border border-gray-200 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-700 text-lg transition-all duration-200 hover:border-blue-300 placeholder-gray-400"
-                placeholder="e.g., Gfalls collection, Gamer model PC, or PC"
+                placeholder="e.g., Gamer, PC, or 0.1, 0.2"
                 spellcheck="false"
             />
             <div class="mt-4 flex items-center justify-end">
@@ -70,7 +124,7 @@
         <section class="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 min-h-[10rem] flex items-center justify-center">
             <div id="result" class="w-full">
                 <p class="text-gray-400 italic text-center">
-                    Enter a category, model, or "category collection" to find patterns.
+                    Enter a category, model, or numerical pattern to find matches.
                 </p>
             </div>
         </section>
@@ -88,6 +142,25 @@
             </div>
         </div>
     </footer>
+
+    <!-- Full-screen Modal for Pattern Details -->
+    <div id="patternModal" class="modal-overlay">
+        <div class="modal-content w-full max-w-lg">
+            <h2 id="modalTitle" class="text-2xl font-bold text-gray-900 mb-4 text-center"></h2>
+            <p id="modalPattern" class="text-lg text-gray-700 font-mono break-words text-center mb-6"></p>
+            <button id="copyToClipboardModal" class="w-full bg-green-500 text-white py-3 px-6 rounded-lg text-lg font-semibold hover:bg-green-600 transition-colors duration-200 shadow-md mb-4">
+                Copy Pattern
+            </button>
+            <button id="modalBackButton" class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg text-lg font-semibold hover:bg-blue-700 transition-colors duration-200 shadow-md">
+                Back to Results
+            </button>
+        </div>
+    </div>
+
+    <!-- Copy Message Toast -->
+    <div id="copyMessage" class="copy-message">
+        Copied to clipboard!
+    </div>
 
     <script>
         // The provided data structure
@@ -266,6 +339,14 @@
         // Flag to ensure links are only added once
         let voxelLinksAdded = false;
 
+        // Get modal elements
+        const patternModal = document.getElementById('patternModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalPattern = document.getElementById('modalPattern');
+        const modalBackButton = document.getElementById('modalBackButton');
+        const copyToClipboardModalButton = document.getElementById('copyToClipboardModal');
+        const copyMessage = document.getElementById('copyMessage');
+
         /**
          * Formats a numerical pattern array into a compressed string like "0.1^3, 0.2^2".
          * @param {Array<number>} pattern The numerical pattern array.
@@ -293,7 +374,49 @@
             return compressedParts.join(', ');
         }
 
+        /**
+         * Displays a temporary message (toast) to the user.
+         * @param {string} message The message to display.
+         * @param {number} duration The duration in milliseconds for the message to be visible.
+         */
+        function showMessage(message, duration = 2000) {
+            copyMessage.textContent = message;
+            copyMessage.classList.add('show');
+            setTimeout(() => {
+                copyMessage.classList.remove('show');
+            }, duration);
+        }
 
+        /**
+         * Copies text to the clipboard.
+         * Uses document.execCommand('copy') for better iframe compatibility.
+         * @param {string} text The text to copy.
+         */
+        function copyToClipboard(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed'; // Prevent scrolling to bottom of page
+            textarea.style.left = '-9999px'; // Hide it
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showMessage('Copied to clipboard!');
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+                showMessage('Failed to copy!');
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        }
+
+        /**
+         * Displays a single matched pattern in the results container.
+         * Adds a click listener to open the modal and a copy button.
+         * @param {string} categoryName The name of the category.
+         * @param {string} itemName The name of the item/model.
+         * @param {Array<number>} pattern The numerical pattern array.
+         */
         function displayMatch(categoryName, itemName, pattern) {
             const container = document.getElementById("result");
             // Clear any "no match" message or previous single match
@@ -313,135 +436,157 @@
 
             // Create a new div for the match
             const div = document.createElement("div");
-            div.className = "bg-green-50 p-4 rounded-lg border border-green-200 text-left shadow-sm mb-4"; // Tailwind classes
+            div.className = "bg-green-50 p-4 rounded-lg border border-green-200 text-left shadow-sm mb-4 relative"; // Added relative for positioning copy button
             div.innerHTML = `
                 <p class="font-medium text-green-800 mb-1">
                     <span class="text-green-900">${categoryName}</span>: ${itemName}
                 </p>
                 <p class="text-sm text-green-700 break-words">
-                    Pattern: <span class="font-mono text-green-900">${displayedPattern}</span>
+                    Pattern: <span class="font-mono text-green-900" data-full-pattern="${JSON.stringify(pattern)}">${displayedPattern}</span>
                 </p>
+                <button class="copy-button absolute top-4 right-4 bg-blue-500 text-white p-2 rounded-full shadow-md hover:bg-blue-600 transition-colors duration-150" title="Copy Pattern">
+                    <svg class="lucide lucide-copy w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
+                        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+                    </svg>
+                </button>
             `;
+
+            // Add click listener to open modal (excluding the copy button)
+            div.addEventListener('click', (e) => {
+                if (!e.target.closest('.copy-button')) { // Only open modal if copy button not clicked
+                    openPatternModal(categoryName, itemName, pattern);
+                }
+            });
+
+            // Add click listener for the copy button
+            div.querySelector('.copy-button').addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent modal from opening when copy button is clicked
+                copyToClipboard(pattern.join(', ')); // Always copy the full pattern
+            });
+
             container.appendChild(div);
         }
 
+        /**
+         * Displays a "no match found" message in the results container.
+         */
         function displayNoMatch() {
             const container = document.getElementById("result");
             container.innerHTML = `
                 <div class="text-gray-400 italic text-center no-match-message">
-                    No match found. Try "Gfalls collection", "Gamer model PC", or "PC".
+                    No match found. Try "Gamer", "PC", or "0.1, 0.2".
                 </div>
             `;
         }
 
+        /**
+         * Matches the input string against categories, models, and numerical patterns.
+         * Displays all relevant matches.
+         * @param {string} input The user's search input.
+         */
         function matchPattern(input) {
             const container = document.getElementById("result");
             container.innerHTML = ""; // Clear previous results
 
             const lowerCaseInput = input.toLowerCase().trim();
-            let matched = false;
+            // Use a Map to store unique matches, keyed by "categoryName-itemName" to prevent duplicates
+            const foundMatches = new Map();
 
-            // If input is empty, display the initial prompt
+            // If input is empty, display the initial prompt and return
             if (lowerCaseInput === "") {
-                displayNoMatch(); // Re-use this to show the initial prompt
+                displayNoMatch();
                 return;
             }
 
-            const parts = lowerCaseInput.split(' ').filter(Boolean);
+            // --- Comprehensive Search Logic ---
+            for (const categoryName in data) {
+                const lowerCaseCategory = categoryName.toLowerCase();
 
-            // Check for "[Category Name] collection" command
-            if (parts.length >= 2 && parts[1] === "collection") {
-                const inputCategory = parts[0];
-                for (const categoryName in data) {
-                    if (categoryName.toLowerCase().startsWith(inputCategory)) { // Use startsWith for partial category match
-                        matched = true;
-                        for (const itemName in data[categoryName]) {
-                            displayMatch(categoryName, itemName, data[categoryName][itemName]);
+                // 1. Check if the input is a partial match for the category name
+                if (lowerCaseCategory.includes(lowerCaseInput)) {
+                    // If the input matches a category (even partially), add all models from that category
+                    for (const itemName in data[categoryName]) {
+                        const key = `${categoryName}-${itemName}`;
+                        if (!foundMatches.has(key)) {
+                            foundMatches.set(key, { category: categoryName, item: itemName, pattern: data[categoryName][itemName] });
+                        }
+                    }
+                }
+
+                // 2. Check if the input is a partial match for any model name within any category
+                for (const itemName in data[categoryName]) {
+                    const lowerCaseItem = itemName.toLowerCase();
+                    if (lowerCaseItem.includes(lowerCaseInput)) {
+                        const key = `${categoryName}-${itemName}`;
+                        if (!foundMatches.has(key)) {
+                            foundMatches.set(key, { category: categoryName, item: itemName, pattern: data[categoryName][itemName] });
                         }
                     }
                 }
             }
-            // Check for "[Category Name] model [Model Name]" command
-            else if (parts.length >= 3 && parts[1] === "model") {
-                const inputCategory = parts[0];
-                const inputModel = parts.slice(2).join(' ');
 
-                for (const categoryName in data) {
-                    if (categoryName.toLowerCase().startsWith(inputCategory)) { // Use startsWith for partial category match
-                        for (const itemName in data[categoryName]) {
-                            if (itemName.toLowerCase().startsWith(inputModel)) { // Use startsWith for partial model match
-                                matched = true;
-                                displayMatch(categoryName, itemName, data[categoryName][itemName]);
-                                break;
-                            }
-                        }
-                        if (matched) break;
-                    }
-                }
-            }
-            // Check for direct model name search (e.g., "PC") or numerical pattern matching
-            else {
-                let foundDirectModel = false;
-                // Try to find direct model name first (full match for exactness)
+            // 3. Numerical pattern search
+            // Split input by comma and filter out empty strings, then check if all parts are numbers
+            const inputPartsForNumerical = lowerCaseInput.split(',').map(s => s.trim()).filter(Boolean);
+            const isPotentialNumericalPattern = inputPartsForNumerical.length > 0 && inputPartsForNumerical.every(part => !isNaN(parseFloat(part)));
+
+            if (isPotentialNumericalPattern) {
                 for (const categoryName in data) {
                     for (const itemName in data[categoryName]) {
-                        if (itemName.toLowerCase() === lowerCaseInput) { // Exact match for direct model name
-                            displayMatch(categoryName, itemName, data[categoryName][itemName]);
-                            foundDirectModel = true;
-                            matched = true;
-                        }
-                    }
-                }
+                        const pattern = data[categoryName][itemName];
 
-                // If no direct model name was found, try numerical pattern matching
-                if (!foundDirectModel && !matched) {
-                    let inputParts = input.split(',').map(s => s.trim()).filter(Boolean);
+                        // Check if the data pattern starts with the input numerical sequence
+                        let currentMatch = true;
+                        if (pattern.length >= inputPartsForNumerical.length) {
+                            for (let i = 0; i < inputPartsForNumerical.length; i++) {
+                                const userVal = parseFloat(inputPartsForNumerical[i]);
+                                const patVal = pattern[i];
 
-                    if (inputParts.length === 0 && input.includes(',')) {
-                        displayNoMatch();
-                        return;
-                    } else if (inputParts.length === 0) {
-                        displayNoMatch();
-                        return;
-                    }
-
-                    for (const categoryName in data) {
-                        for (const itemName in data[categoryName]) {
-                            const pattern = data[categoryName][itemName];
-
-                            // If the input pattern is longer than the data pattern, it cannot be a partial match.
-                            if (inputParts.length > pattern.length) {
-                                continue;
-                            }
-
-                            let currentMatch = true;
-                            for (let i = 0; i < inputParts.length; i++) {
-                                const userVal = inputParts[i];
-                                const patVal = pattern[i]; // Keep as number from data
-
-                                const parsedUserVal = parseFloat(userVal);
-
-                                if (isNaN(parsedUserVal) || parsedUserVal !== patVal) {
+                                // Compare numerical values
+                                if (isNaN(userVal) || userVal !== patVal) {
                                     currentMatch = false;
                                     break;
                                 }
                             }
+                        } else {
+                            currentMatch = false; // Input pattern is longer than data pattern, cannot be a starting match
+                        }
 
-                            if (currentMatch) {
-                                matched = true;
-                                displayMatch(categoryName, itemName, pattern);
+                        if (currentMatch) {
+                            const key = `${categoryName}-${itemName}`;
+                            if (!foundMatches.has(key)) {
+                                foundMatches.set(key, { category: categoryName, item: itemName, pattern: data[categoryName][itemName] });
                             }
                         }
                     }
                 }
             }
 
-            if (!matched) {
+            // Display all found matches or the no-match message
+            if (foundMatches.size > 0) {
+                // Convert Map values to an array and sort for consistent display
+                const sortedMatches = Array.from(foundMatches.values()).sort((a, b) => {
+                    // Sort primarily by category name, then by item name
+                    const categoryCompare = a.category.localeCompare(b.category);
+                    if (categoryCompare !== 0) {
+                        return categoryCompare;
+                    }
+                    return a.item.localeCompare(b.item);
+                });
+
+                sortedMatches.forEach(match => {
+                    displayMatch(match.category, match.item, match.pattern);
+                });
+            } else {
                 displayNoMatch();
             }
         }
 
-        // Function to dynamically add Voxel links
+        /**
+         * Dynamically adds Voxel social media links to the footer.
+         * Ensures links are added only once.
+         */
         function addVoxelLinks() {
             if (voxelLinksAdded) {
                 return; // Prevent adding links multiple times
@@ -472,9 +617,44 @@
             voxelLinksAdded = true; // Set flag to true after adding links
         }
 
+        /**
+         * Opens the full-screen modal with the selected pattern details.
+         * @param {string} categoryName The category of the clicked item.
+         * @param {string} itemName The name of the clicked item.
+         * @param {Array<number>} fullPattern The complete numerical pattern.
+         */
+        function openPatternModal(categoryName, itemName, fullPattern) {
+            modalTitle.textContent = `${categoryName}: ${itemName}`;
+
+            // Apply the same display logic as the main results section
+            let displayedPatternInModal;
+            if (currentDisplayOption === 'full') {
+                displayedPatternInModal = fullPattern.join(', ');
+            } else if (currentDisplayOption === 'first5') {
+                displayedPatternInModal = fullPattern.slice(0, 5).join(', ') + (fullPattern.length > 5 ? '...' : '');
+            } else if (currentDisplayOption === 'compressed') {
+                displayedPatternInModal = compressPattern(fullPattern);
+            }
+            modalPattern.innerHTML = displayedPatternInModal; // Use innerHTML to render <sup> tags
+
+            // Set the data-full-pattern attribute on the modal's copy button for easy access
+            copyToClipboardModalButton.dataset.fullPattern = JSON.stringify(fullPattern);
+
+            patternModal.classList.add('show');
+        }
+
+        /**
+         * Closes the full-screen modal.
+         */
+        function closePatternModal() {
+            patternModal.classList.remove('show');
+        }
+
+        // Get the pattern input element
+        const patternInput = document.getElementById("patternInput");
 
         // Event listener for live search input
-        document.getElementById("patternInput").addEventListener("input", (e) => {
+        patternInput.addEventListener("input", (e) => {
             matchPattern(e.target.value);
         });
 
@@ -486,7 +666,26 @@
             matchPattern(currentInput);
         });
 
-        // Initialize Lucide icons and add Voxel links on DOMContentLoaded
+        // Event listener for the modal's back button
+        modalBackButton.addEventListener('click', closePatternModal);
+
+        // Event listener for the modal's copy button
+        copyToClipboardModalButton.addEventListener('click', () => {
+            const fullPatternString = copyToClipboardModalButton.dataset.fullPattern;
+            if (fullPatternString) {
+                const fullPattern = JSON.parse(fullPatternString);
+                copyToClipboard(fullPattern.join(', '));
+            }
+        });
+
+        // Optional: Close modal if clicking outside the content (on the overlay)
+        patternModal.addEventListener('click', (e) => {
+            if (e.target === patternModal) {
+                closePatternModal();
+            }
+        });
+
+        // Initialize Lucide icons, add Voxel links, and render recent searches on DOMContentLoaded
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof lucide !== 'undefined') {
                 lucide.createIcons();
